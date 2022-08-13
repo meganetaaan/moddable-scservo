@@ -1,0 +1,14 @@
+{
+  "include": [
+    "$(MODDABLE)/modules/io/manifest.json",
+    "$(MODDABLE)/examples/manifest_typings.json"
+  ],
+  "modules": {
+    "*": [
+      "./scservo"
+    ]
+  },
+  "preload": [
+    "scservo"
+  ]
+}
