@@ -7,11 +7,7 @@ declare const button: {
 }
 
 const servo = new SCServo({
-  id: 1,
-  onReadCommand: (command, values) => {
-    const arr = new Uint8Array(values)
-    trace(`got data: ${arr}\n`)
-  },
+  id: 1
 })
 
 let torqueEnabled = true
@@ -22,14 +18,15 @@ Timer.repeat(() => {
     return
   }
   angle += tick
-  trace(`angle: ${angle}\n`)
+  trace(`writing angle: ${angle}\n`)
   if (angle >= 1000 || angle < 30) {
     tick = -tick
   }
   servo.setAngleInTime(angle, 500)
 }, 1000)
-Timer.repeat(() => {
-  servo.requestReadStatus()
+Timer.repeat(async () => {
+  const angle = await servo.requestReadStatus()
+  trace(`current angle: ${angle}\n`)
 }, 33)
 
 button.a.onChanged = function() {
