@@ -7,8 +7,5 @@
     "*": [
       "./scservo"
     ]
-  },
-  "preload": [
-    "scservo"
-  ]
+  }
 }

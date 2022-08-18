@@ -1,17 +1,40 @@
 import Timer from 'timer'
 import SCServo from 'scservo'
+declare const button: {
+  a: {
+    onChanged: (this: { read: () => number }) => void
+  }
+}
 
 const servo = new SCServo({
   id: 1,
-  onReadCommand: (data) => {
-    trace(`got data: ${data}\n`)
+  onReadCommand: (command, values) => {
+    const arr = new Uint8Array(values)
+    trace(`got data: ${arr}\n`)
   },
 })
 
-servo.setTorque(true)
+let torqueEnabled = true
 let angle = 0
+let tick = 30
 Timer.repeat(() => {
-  angle += 10
-  servo.setAngleInTime(angle, 1000)
+  if (!torqueEnabled) {
+    return
+  }
+  angle += tick
+  trace(`angle: ${angle}\n`)
+  if (angle >= 1000 || angle < 30) {
+    tick = -tick
+  }
+  servo.setAngleInTime(angle, 500)
+}, 1000)
+Timer.repeat(() => {
   servo.requestReadStatus()
-}, 2000)
+}, 33)
+
+button.a.onChanged = function() {
+  if (!this.read()) {
+    torqueEnabled = !torqueEnabled
+    servo.setTorque(torqueEnabled)
+  }
+}

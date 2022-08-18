@@ -5,34 +5,34 @@ function clamp(v: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, v))
 }
 function le(v: number): [number, number] {
-  return [v & 0xff, (v & 0xff00) >> 8]
+  return [(v & 0xff00) >> 8, v & 0xff]
 }
 
 const BROADCAST_ID = 0xfe // 254
 const MAX_ID = 0xfc // 252
 const SCS_END = 0
 
-const Result = {
-  SUCCESS: 0,
-  PORT_BUSY: -1, // Port is in use
-  TX_FAIL: -2, // Failed transmit instruction packet
-  RX_FAIL: -3, // Failed get status packet
-  TX_ERROR: -4, // Incorrect instruction packet
-  RX_WAITING: -5, // Now receiving staus packet
-  RX_TIMEOUT: -6,
-  RX_CORRUPT: -7,
-  NOT_AVAILABLE: -9,
+const COMMAND = {
+  WRITE: 0x03,
+  READ: 0x02,
 } as const
-type Result = typeof Result[keyof typeof Result]
+type Command = typeof COMMAND[keyof typeof COMMAND]
 
-const COMMANDS = {
+const ADDRESS = {
   TORQUE_ENABLE: 40,
   GOAL_ACC: 41,
   GOAL_POSITION: 42,
   GOAL_TIME: 44,
   PRESENT_POSITION: 56,
 } as const
-type Command = typeof COMMANDS[keyof typeof COMMANDS]
+type Address = typeof ADDRESS[keyof typeof ADDRESS]
+
+const RX_STATE = {
+  SEEK: 0,
+  HEAD: 1,
+  BODY: 2,
+} as const
+type RxState = typeof RX_STATE[keyof typeof RX_STATE]
 
 /**
  * calculates checksum of the SCS packets
@@ -44,39 +44,76 @@ function checksum(arr: number[] | Uint8Array): number {
   for (const n of arr.slice(2)) {
     sum += n
   }
-  return ~(sum & 0xff)
+  const cs = ~(sum & 0xff)
+  trace(`>>>checksum is ${new Uint8Array([cs])[0]}: ${arr}\n`)
+  return cs
 }
 
 type SCServoConstructorParam = {
-  id: number,
-  onReadCommand: (command: Command, values: number[]) => void
+  id: number
+  onCommandRead: (address: Address, values: number[]) => void
 }
 class SCServo {
-  #serial: Serial
-  #writeBuf: Uint8Array
-  #readBuf: Uint8Array
-  #id: number
-  constructor(option: SCServoConstructorParam) {
+  #serial
+  #writeBuf
+  #id
+  #onReadCommand
+  constructor(option) {
     this.#id = option.id
     this.#writeBuf = new Uint8Array(64)
-    this.#readBuf = new Uint8Array(64)
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
-    const serial = this
+    const readBuf = new Uint8Array(64)
+
+    let idx = 0
+    let count = 0
+    let state: RxState = RX_STATE.SEEK
+    this.#onReadCommand = option.onReadCommand
     this.#serial = new device.io.Serial({
-      ...device.Serial.default,
+      // Core2
+      // receive: 13,
+      // transmit: 14,
+      receive: 16,
+      transmit: 17,
       baud: 1_000_000,
-      format: 'buffer',
-      onReadable: function (bytes: number) {
-        this.read(serial.#readBuf)
-        if (serial.#readBuf[0] === 0xff && serial.#readBuf[1] === 0xff) {
-          trace('got echo')
-          return
+      port: 2,
+      format: 'number',
+      onReadable: function (bytes) {
+        while (bytes > 0) {
+          // NOTE: We can safely read a number
+          readBuf[idx++] = this.read() as number
+          bytes -= 1
+          switch (state) {
+            case RX_STATE.SEEK:
+              if (idx >= 2) {
+                // see header
+                if (readBuf[0] === 0xff && readBuf[1] === 0xff) {
+                  // packet found
+                  state = RX_STATE.HEAD
+                } else {
+                  // reset seek
+                  trace('seeking failed. reset\n')
+                  idx = 0
+                }
+              }
+              break
+            case RX_STATE.HEAD:
+              if (idx >= 4) {
+                count = readBuf[3]
+                state = RX_STATE.BODY
+              }
+              break
+            case RX_STATE.BODY:
+              count -= 1
+              if (count === 0) {
+                const cs = checksum(readBuf.slice(0, idx - 1))
+                trace(`got message(checksum is ${new Uint8Array([cs])[0]}): ${readBuf.slice(0, idx)}\n`)
+                idx = 0
+                state = RX_STATE.SEEK
+              }
+              break
+            default:
+              trace('error\n')
+          }
         }
-        if (serial.#readBuf[2] !== serial.#id) {
-          trace('ignore for another id')
-          return
-        }
-        serial.#onReadCommand(bytes)
       },
     })
   }
@@ -85,44 +122,46 @@ class SCServo {
     return this.#id
   }
 
-  #onReadCommand(bytes: number) {
-    /* noop */
-  }
-
-  #writeCommand(command: Command, ...values: number[]): void {
+  #sendCommand(command: Command, address: Address, ...values: number[]): void {
     this.#writeBuf[0] = 0xff
     this.#writeBuf[1] = 0xff
     this.#writeBuf[2] = this.#id
     this.#writeBuf[3] = values.length + 3
-    this.#writeBuf[4] = 0x03 // write command
-    this.#writeBuf[5] = command
+    this.#writeBuf[4] = command // write or read
+    this.#writeBuf[5] = address
     let idx = 6
     for (const v of values) {
       this.#writeBuf[idx] = v
       idx++
     }
-    this.#writeBuf[idx] = checksum(this.#writeBuf.slice(0, idx - 1))
+    this.#writeBuf[idx] = checksum(this.#writeBuf.slice(0, idx))
     idx++
-    this.#serial.write(this.#writeBuf.slice(0, idx))
+    trace(`writing: ${this.#writeBuf.slice(0, idx)}\n`)
+    for (let i = 0; i < idx; i++) {
+      this.#serial.write(this.#writeBuf[i])
+    }
   }
 
   setAngle(angle: number): void {
-    // 0 < value < 1000
-    const a = clamp(angle, 0, 1000)
-    this.#writeCommand(COMMANDS.GOAL_POSITION, ...le(a))
+    // 0 <= a <= 1023
+    const a = clamp(angle, 0, 0x03ff)
+
+    this.#sendCommand(COMMAND.WRITE, ADDRESS.GOAL_POSITION, ...le(a))
   }
 
   setAngleInTime(angle: number, goalTime: number): void {
-    const a = clamp(angle, 0, 1000)
-    this.#writeCommand(COMMANDS.GOAL_POSITION, ...le(a), 0, 0, ...le(goalTime))
+    // 0 <= a <= 1023
+    const a = clamp(angle, 0, 0x03ff)
+
+    this.#sendCommand(COMMAND.WRITE, ADDRESS.GOAL_POSITION, ...le(a), ...le(goalTime))
   }
 
   setTorque(enable: boolean): void {
-    this.#writeCommand(COMMANDS.TORQUE_ENABLE, Number(enable))
+    this.#sendCommand(COMMAND.WRITE, ADDRESS.TORQUE_ENABLE, Number(enable))
   }
 
   requestReadStatus(): void {
-    this.#writeCommand(COMMANDS.PRESENT_POSITION)
+    this.#sendCommand(COMMAND.READ, ADDRESS.PRESENT_POSITION, 2)
   }
 }
 
