@@ -23,10 +23,12 @@ const COMMAND = {
 type Command = typeof COMMAND[keyof typeof COMMAND]
 
 const ADDRESS = {
+  ID: 5,
   TORQUE_ENABLE: 40,
   GOAL_ACC: 41,
   GOAL_POSITION: 42,
   GOAL_TIME: 44,
+  LOCK: 48,
   PRESENT_POSITION: 56,
 } as const
 type Address = typeof ADDRESS[keyof typeof ADDRESS]
@@ -194,6 +196,34 @@ class SCServo {
     return new Promise((resolve, reject) => {
       this.#promises.push(resolve)
     })
+  }
+
+  async #lock(): Promise<unknown> {
+    return this.#sendCommand(COMMAND.WRITE, ADDRESS.LOCK, 1)
+  }
+
+  async #unlock(): Promise<unknown> {
+    return this.#sendCommand(COMMAND.WRITE, ADDRESS.LOCK, 0)
+  }
+
+  async flashId(id: number): Promise<unknown> {
+    if (SCServo.packetHandler.hasCallbackOf(id)) {
+      throw new Error(`id(${id}) is already used\n`)
+    }
+    // trace('unlocking\n')
+    await this.#unlock()
+    // trace('setting new id\n')
+    const promise = this.#sendCommand(COMMAND.WRITE, ADDRESS.ID, id)
+    const oldId = this.#id
+    this.#id = id
+    SCServo.packetHandler.registerCallback(this.#id, this.#onCommandRead)
+    // trace(`now we use new id(${id}\n`)
+    await promise
+    // trace('locking\n')
+    await this.#lock()
+    // trace(`now we use new id(${id}\n`)
+    SCServo.packetHandler.removeCallback(oldId)
+    return
   }
 
   /**
