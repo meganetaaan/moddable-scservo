@@ -232,11 +232,11 @@ class SCServo {
   /**
    * sets angle immediately
    * @param angle angle(degree)
-   * @returns 
+   * @returns TBD
    */
   async setAngle(angle: number): Promise<unknown> {
-    // 0 <= a <= 1023
-    const a = clamp(angle, 0, 0x03ff)
+    // 0 (0 degree) <= a <= 1023 (200 degree)
+    const a = Math.floor(clamp((angle * 1024) / 200, 0, 0x03ff))
     return this.#sendCommand(COMMAND.WRITE, ADDRESS.GOAL_POSITION, ...le(a))
   }
 
@@ -244,11 +244,11 @@ class SCServo {
    * sets angle within goal time
    * @param angle angle(degree)
    * @param goalTime time(millisecond)
-   * @returns 
+   * @returns TBD
    */
   async setAngleInTime(angle: number, goalTime: number): Promise<unknown> {
     // 0 <= a <= 1023
-    const a = clamp(angle, 0, 0x03ff)
+    const a = Math.floor(clamp((angle * 1024) / 200, 0, 0x03ff))
     const res = await this.#sendCommand(COMMAND.WRITE, ADDRESS.GOAL_POSITION, ...le(a), ...le(goalTime))
     return res
   }
@@ -256,7 +256,7 @@ class SCServo {
   /**
    * sets torque
    * @param enable enable
-   * @returns 
+   * @returns TBD
    */
   async setTorque(enable: boolean): Promise<unknown> {
     return this.#sendCommand(COMMAND.WRITE, ADDRESS.TORQUE_ENABLE, Number(enable))
@@ -271,8 +271,9 @@ class SCServo {
     if (values.length < 15) {
       throw new Error('response too short')
     }
+    const angle = (el(values[0], values[1]) * 200) / 1024
     return {
-      angle: el(values[0], values[1])
+      angle,
     }
   }
 }
