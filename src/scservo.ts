@@ -1,4 +1,5 @@
 import Serial from 'embedded:io/serial'
+import Timer from 'timer'
 
 // utilities
 function clamp(v: number, min: number, max: number): number {
@@ -144,13 +145,14 @@ class SCServo {
   #id: number
   #onCommandRead: (values: number[]) => void
   #txBuf: Uint8Array
-  #promises: Array<(values: number[]) => void>
+  #promises: Array<[(values: number[]) => void, Timer]>
   constructor({ id }: SCServoConstructorParam) {
     this.#id = id
     this.#promises = []
     this.#onCommandRead = (values) => {
       if (this.#promises.length > 0) {
-        const resolver = this.#promises.shift()
+        const [resolver, timeoutId] = this.#promises.shift()
+        Timer.clear(timeoutId)
         resolver(values)
       }
     }
@@ -194,7 +196,8 @@ class SCServo {
       SCServo.packetHandler.write(this.#txBuf[i])
     }
     return new Promise((resolve, reject) => {
-      this.#promises.push(resolve)
+      const id = Timer.set(reject, 40)
+      this.#promises.push([resolve, id])
     })
   }
 
