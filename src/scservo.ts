@@ -60,7 +60,7 @@ class PacketHandler extends Serial {
                 this.#state = RX_STATE.HEAD
               } else {
                 // reset seek
-                trace('seeking failed. reset\n')
+                // trace('seeking failed. reset\n')
                 this.#idx = 0
               }
             }
@@ -74,14 +74,14 @@ class PacketHandler extends Serial {
           case RX_STATE.BODY:
             this.#count -= 1
             if (this.#count === 0) {
-              trace('received packet!\n')
+              // trace('received packet!\n')
               const cs = checksum(rxBuf.slice(0, this.#idx - 1)) & 0xff
               const id = rxBuf[2]
               const command = rxBuf[4] as Command
               if (command !== COMMAND.RESPONSE) {
-                trace('got echo. ignoring\n')
+                // trace('got echo. ignoring\n')
               } else if (cs === rxBuf[this.#idx - 1] && this.#callbacks.has(id)) {
-                trace('got response. triggering callback \n')
+                // trace('got response. triggering callback \n')
                 this.#callbacks.get(id)(Array.from(rxBuf.slice(5, this.#idx - 1)))
               } else {
                 trace(`unknown packet. ignoring\n`)
@@ -91,7 +91,8 @@ class PacketHandler extends Serial {
             }
             break
           default:
-            trace('error\n')
+            // @ts-ignore 6113
+            let _state: never
         }
         // noop
       }
@@ -186,7 +187,7 @@ class SCServo {
     }
     this.#txBuf[idx] = checksum(this.#txBuf.slice(0, idx))
     idx++
-    trace(`writing: ${this.#txBuf.slice(0, idx)}\n`)
+    // trace(`writing: ${this.#txBuf.slice(0, idx)}\n`)
     for (let i = 0; i < idx; i++) {
       SCServo.packetHandler.write(this.#txBuf[i])
     }
@@ -195,12 +196,23 @@ class SCServo {
     })
   }
 
+  /**
+   * sets angle immediately
+   * @param angle angle(degree)
+   * @returns 
+   */
   async setAngle(angle: number): Promise<unknown> {
     // 0 <= a <= 1023
     const a = clamp(angle, 0, 0x03ff)
     return this.#sendCommand(COMMAND.WRITE, ADDRESS.GOAL_POSITION, ...le(a))
   }
 
+  /**
+   * sets angle within goal time
+   * @param angle angle(degree)
+   * @param goalTime time(millisecond)
+   * @returns 
+   */
   async setAngleInTime(angle: number, goalTime: number): Promise<unknown> {
     // 0 <= a <= 1023
     const a = clamp(angle, 0, 0x03ff)
@@ -208,16 +220,27 @@ class SCServo {
     return res
   }
 
+  /**
+   * sets torque
+   * @param enable enable
+   * @returns 
+   */
   async setTorque(enable: boolean): Promise<unknown> {
     return this.#sendCommand(COMMAND.WRITE, ADDRESS.TORQUE_ENABLE, Number(enable))
   }
 
-  async requestReadStatus(): Promise<unknown> {
+  /**
+   * reads servo's present status
+   * @returns angle(degree)
+   */
+  async readStatus(): Promise<{ angle: number }> {
     const values = await this.#sendCommand(COMMAND.READ, ADDRESS.PRESENT_POSITION, 15)
     if (values.length < 15) {
       throw new Error('response too short')
     }
-    return el(values[0], values[1])
+    return {
+      angle: el(values[0], values[1])
+    }
   }
 }
 

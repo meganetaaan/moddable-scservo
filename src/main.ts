@@ -25,7 +25,7 @@ Timer.repeat(() => {
   servo.setAngleInTime(angle, 500)
 }, 1000)
 Timer.repeat(async () => {
-  const angle = await servo.requestReadStatus()
+  const angle = await servo.readStatus()
   trace(`current angle: ${angle}\n`)
 }, 33)
 
