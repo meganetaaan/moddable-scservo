@@ -195,8 +195,12 @@ class SCServo {
     for (let i = 0; i < idx; i++) {
       SCServo.packetHandler.write(this.#txBuf[i])
     }
-    return new Promise((resolve, reject) => {
-      const id = Timer.set(reject, 40)
+    return new Promise((resolve, _reject) => {
+      const id = Timer.set(() => {
+        this.#promises.shift()
+        trace(`timeout. ${this.#promises.length}\n`)
+        resolve(undefined)
+      }, 40)
       this.#promises.push([resolve, id])
     })
   }
@@ -268,8 +272,8 @@ class SCServo {
    */
   async readStatus(): Promise<{ angle: number }> {
     const values = await this.#sendCommand(COMMAND.READ, ADDRESS.PRESENT_POSITION, 15)
-    if (values.length < 15) {
-      throw new Error('response too short')
+    if (values == null || values.length < 15) {
+      throw 'failed to get response'
     }
     const angle = (el(values[0], values[1]) * 200) / 1024
     return {
