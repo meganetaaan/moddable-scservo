@@ -1,5 +1,6 @@
 import Serial from 'embedded:io/serial'
 import Timer from 'timer'
+import config from 'mc/config'
 
 // utilities
 function clamp(v: number, min: number, max: number): number {
@@ -159,8 +160,8 @@ class SCServo {
     this.#txBuf = new Uint8Array(64)
     if (SCServo.packetHandler == null) {
       SCServo.packetHandler = new PacketHandler({
-        receive: 16,
-        transmit: 17,
+        receive: config.serial?.receive ?? 16,
+        transmit: config.serial?.transmit ?? 17,
         baud: 1_000_000,
         port: 2,
       })
