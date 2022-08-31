@@ -26,6 +26,7 @@ type Command = typeof COMMAND[keyof typeof COMMAND]
 
 const ADDRESS = {
   ID: 5,
+  OFFSET: 31,
   TORQUE_ENABLE: 40,
   GOAL_ACC: 41,
   GOAL_POSITION: 42,
@@ -212,6 +213,19 @@ class SCServo {
 
   async #unlock(): Promise<unknown> {
     return this.#sendCommand(COMMAND.WRITE, ADDRESS.LOCK, 0)
+  }
+
+  /**
+   * @note SCS series does not have zero position calibration function.
+   *  The offset value should be handled by the application.
+   */
+  async readOffsetAngle(): Promise<number> {
+    const values = await this.#sendCommand(COMMAND.READ, ADDRESS.OFFSET, 2)
+    return el(values[0], values[1])
+  }
+
+  async setOffsetAngle(angle: number): Promise<unknown> {
+    return this.#sendCommand(COMMAND.WRITE, ADDRESS.OFFSET, ...le(angle))
   }
 
   async flashId(id: number): Promise<unknown> {
