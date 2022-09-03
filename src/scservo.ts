@@ -1,6 +1,7 @@
 import Serial from 'embedded:io/serial'
 import Timer from 'timer'
 import config from 'mc/config'
+import Preference from 'preference'
 
 // utilities
 function clamp(v: number, min: number, max: number): number {
@@ -148,9 +149,11 @@ class SCServo {
   #onCommandRead: (values: number[]) => void
   #txBuf: Uint8Array
   #promises: Array<[(values: number[]) => void, Timer]>
+  #offset: number
   constructor({ id }: SCServoConstructorParam) {
     this.#id = id
     this.#promises = []
+    this.#offset = 0
     this.#onCommandRead = (values) => {
       if (this.#promises.length > 0) {
         const [resolver, timeoutId] = this.#promises.shift()
@@ -216,16 +219,56 @@ class SCServo {
   }
 
   /**
+   * reads offset angle
    * @note SCS series does not have zero position calibration function.
    *  The offset value should be handled by the application.
    */
   async readOffsetAngle(): Promise<number> {
     const values = await this.#sendCommand(COMMAND.READ, ADDRESS.OFFSET, 2)
-    return el(values[0], values[1])
+    const isCcw = Boolean(values[0] & 0x8000)
+    let offset = ((values[0] & 0x7fff) << 8) | values[1]
+    if (isCcw) {
+      offset *= -1
+    }
+    return offset
   }
 
+  /**
+   * sets offset angle
+   * @param angle offset angle (-2000 to 2000)
+   */
   async setOffsetAngle(angle: number): Promise<unknown> {
-    return this.#sendCommand(COMMAND.WRITE, ADDRESS.OFFSET, ...le(angle))
+    this.#offset = angle
+    const isCcw = angle < 0
+    if (isCcw) {
+      angle *= -1
+    }
+    const value = (Number(isCcw) << 15) | (angle & 0x7fff)
+    return this.#sendCommand(COMMAND.WRITE, ADDRESS.OFFSET, ...le(value))
+  }
+
+  /**
+   * load settings from the servo
+   */
+  async loadSettings(): Promise<unknown> {
+    // Offset angle
+    this.#offset = await this.readOffsetAngle()
+
+    // Further configuration to be loaded below
+    return
+  }
+
+  /**
+   * save settings to the servo
+   */
+  async saveSettings(): Promise<unknown> {
+    // Offset angle
+    await this.#unlock()
+    await this.setOffsetAngle(this.#offset)
+    await this.#lock()
+
+    // Further configuration to be loaded below
+    return
   }
 
   async flashId(id: number): Promise<unknown> {
@@ -254,8 +297,7 @@ class SCServo {
    * @returns TBD
    */
   async setAngle(angle: number): Promise<unknown> {
-    // 0 (0 degree) <= a <= 1023 (200 degree)
-    const a = Math.floor(clamp((angle * 1024) / 200, 0, 0x03ff))
+    const a = Math.floor(clamp(((angle + this.#offset) * 1024) / 200, 0, 0x03ff))
     return this.#sendCommand(COMMAND.WRITE, ADDRESS.GOAL_POSITION, ...le(a))
   }
 
@@ -267,7 +309,7 @@ class SCServo {
    */
   async setAngleInTime(angle: number, goalTime: number): Promise<unknown> {
     // 0 <= a <= 1023
-    const a = Math.floor(clamp((angle * 1024) / 200, 0, 0x03ff))
+    const a = Math.floor(clamp(((angle + this.#offset) * 1024) / 200, 0, 0x03ff))
     const res = await this.#sendCommand(COMMAND.WRITE, ADDRESS.GOAL_POSITION, ...le(a), ...le(goalTime))
     return res
   }
