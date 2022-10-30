@@ -31,8 +31,12 @@ Timer.repeat(async () => {
 }, 1000)
 
 Timer.repeat(async () => {
-  const { angle } = await servo.readStatus()
-  trace(`${servo.id}...current angle: ${angle}\n`)
+  const result = await servo.readStatus()
+  if (result.success) {
+    trace(`${servo.id}...current angle: ${result.value.angle}\n`)
+  } else {
+    trace(`${servo.id}...failed to read status\n`)
+  }
 }, 33)
 
 button.a.onChanged = function () {

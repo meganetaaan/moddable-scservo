@@ -3,6 +3,16 @@ import Timer from 'timer'
 import config from 'mc/config'
 import Preference from 'preference'
 
+type Maybe<T> =
+  | {
+      success: true
+      value: T
+    }
+  | {
+      success: false
+      reason?: string
+    }
+
 // utilities
 function clamp(v: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, v))
@@ -327,14 +337,18 @@ class SCServo {
    * reads servo's present status
    * @returns angle(degree)
    */
-  async readStatus(): Promise<{ angle: number }> {
+  async readStatus(): Promise<Maybe<{ angle: number }>> {
     const values = await this.#sendCommand(COMMAND.READ, ADDRESS.PRESENT_POSITION, 15)
     if (values == null || values.length < 15) {
-      throw 'failed to get response'
+      return {
+        success: false,
+        reason: 'response corrupted.'
+      }
     }
     const angle = (el(values[0], values[1]) * 200) / 1024
     return {
-      angle,
+      success: true,
+      value: { angle },
     }
   }
 }
