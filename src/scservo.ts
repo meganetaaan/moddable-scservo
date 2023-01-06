@@ -30,6 +30,8 @@ const SCS_END = 0
 
 const COMMAND = {
   RESPONSE: 0x00,
+  // NOTE: Some servo returns response with command 0x01. Dunno why.
+  RESPONSE_ALT: 0x01,
   WRITE: 0x03,
   READ: 0x02,
 } as const
@@ -94,7 +96,7 @@ class PacketHandler extends Serial {
               const cs = checksum(rxBuf.slice(0, this.#idx - 1)) & 0xff
               const id = rxBuf[2]
               const command = rxBuf[4] as Command
-              if (command !== COMMAND.RESPONSE) {
+              if (command === COMMAND.READ || command === COMMAND.WRITE) {
                 // trace(`got echo.  ... ${rxBuf.slice(0, this.#idx)} ignoring\n`)
               } else if (cs === rxBuf[this.#idx - 1] && this.#callbacks.has(id)) {
                 // trace(`got response for ${id}. triggering callback \n`)
