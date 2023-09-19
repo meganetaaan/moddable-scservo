@@ -1,7 +1,6 @@
 import Serial from 'embedded:io/serial'
 import Timer from 'timer'
 import config from 'mc/config'
-import Preference from 'preference'
 
 type Maybe<T> =
   | {
@@ -155,8 +154,8 @@ type SCServoConstructorParam = {
   id: number
 }
 
+let packetHandler: PacketHandler = null
 class SCServo {
-  static packetHandler: PacketHandler
   #id: number
   #onCommandRead: (values: number[]) => void
   #txBuf: Uint8Array
@@ -174,21 +173,21 @@ class SCServo {
       }
     }
     this.#txBuf = new Uint8Array(64)
-    if (SCServo.packetHandler == null) {
-      SCServo.packetHandler = new PacketHandler({
+    if (packetHandler == null) {
+      packetHandler = new PacketHandler({
         receive: config.serial?.receive ?? 16,
         transmit: config.serial?.transmit ?? 17,
         baud: 1_000_000,
         port: 2,
       })
     }
-    if (SCServo.packetHandler.hasCallbackOf(id)) {
+    if (packetHandler.hasCallbackOf(id)) {
       throw new Error('This id is already instantiated')
     }
-    SCServo.packetHandler.registerCallback(this.#id, this.#onCommandRead)
+    packetHandler.registerCallback(this.#id, this.#onCommandRead)
   }
   teardown(): void {
-    SCServo.packetHandler.removeCallback(this.#id)
+    packetHandler.removeCallback(this.#id)
   }
   get id(): number {
     return this.#id
@@ -210,7 +209,7 @@ class SCServo {
     idx++
     // trace(`writing: ${this.#txBuf.slice(0, idx)}\n`)
     for (let i = 0; i < idx; i++) {
-      SCServo.packetHandler.write(this.#txBuf[i])
+      packetHandler.write(this.#txBuf[i])
     }
     return new Promise((resolve, _reject) => {
       const id = Timer.set(() => {
@@ -284,7 +283,7 @@ class SCServo {
   }
 
   async flashId(id: number): Promise<unknown> {
-    if (SCServo.packetHandler.hasCallbackOf(id)) {
+    if (packetHandler.hasCallbackOf(id)) {
       throw new Error(`id(${id}) is already used\n`)
     }
     // trace('unlocking\n')
@@ -293,13 +292,13 @@ class SCServo {
     const promise = this.#sendCommand(COMMAND.WRITE, ADDRESS.ID, id)
     const oldId = this.#id
     this.#id = id
-    SCServo.packetHandler.registerCallback(this.#id, this.#onCommandRead)
+    packetHandler.registerCallback(this.#id, this.#onCommandRead)
     // trace(`now we use new id(${id}\n`)
     await promise
     // trace('locking\n')
     await this.#lock()
     // trace(`now we use new id(${id}\n`)
-    SCServo.packetHandler.removeCallback(oldId)
+    packetHandler.removeCallback(oldId)
     return
   }
 
